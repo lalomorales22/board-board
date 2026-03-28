@@ -1,0 +1,25 @@
+{
+  "name": "board-board",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "3D split-flap display board with AI integration and whiteboard",
+  "scripts": {
+    "dev": "vite",
+    "start": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "typescript": "~5.6.2",
+    "vite": "^6.0.0"
+  }
+}
