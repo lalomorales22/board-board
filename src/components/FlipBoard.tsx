@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { useAppContext } from '../context/AppContext';
 import { useOllama } from '../hooks/useOllama';
-import { TILE_DIMS, MAX_COLS, CHAR_SET } from '../types';
+import { TILE_DIMS, MAX_COLS, MAX_ROWS, CHAR_SET } from '../types';
 import { loadState, saveState } from '../utils/storage';
 import FlipTile from './FlipTile';
 import FlipControls from './FlipControls';
@@ -11,17 +11,12 @@ export default function FlipBoard() {
   const ollama = useOllama(settings.ollamaUrl, settings.selectedModel);
 
   const [message, setMessage] = useState(() => loadState('boardMessage', 'BOARD BOARD'));
-  const [rows, setRows] = useState(() => loadState('boardRows', 3));
   const [columns, setColumns] = useState(16);
   const [thinking, setThinking] = useState(false);
   const displayRef = useRef<HTMLDivElement>(null);
 
-  const generateRef = useRef(ollama.generate);
-  generateRef.current = ollama.generate;
-
-  // Persist
+  // Persist message
   useEffect(() => { saveState('boardMessage', message); }, [message]);
-  useEffect(() => { saveState('boardRows', rows); }, [rows]);
 
   // Auto-fit columns
   useEffect(() => {
@@ -38,8 +33,9 @@ export default function FlipBoard() {
     return () => ro.disconnect();
   }, [settings.tileSize]);
 
-  // The display text: show "THINKING..." while AI is working, otherwise the message
+  // Rows are determined by the displayed content (number of lines, capped at MAX_ROWS)
   const displayText = thinking ? '...THINKING...' : message;
+  const rows = Math.max(1, Math.min(MAX_ROWS, displayText.split('\n').length));
 
   const grid = useMemo(() => {
     const lines = displayText.toUpperCase().split('\n');
@@ -55,8 +51,6 @@ export default function FlipBoard() {
   // Auto AI mode
   const columnsRef = useRef(columns);
   columnsRef.current = columns;
-  const rowsRef = useRef(rows);
-  rowsRef.current = rows;
 
   useEffect(() => {
     if (!settings.autoMode || !ollama.connected || !settings.selectedModel) return;
@@ -65,7 +59,7 @@ export default function FlipBoard() {
     const run = async () => {
       if (cancelled) return;
       setThinking(true);
-      const phrase = await generateRef.current(columnsRef.current, rowsRef.current);
+      const phrase = await ollama.generate(columnsRef.current, MAX_ROWS);
       if (!cancelled) {
         setThinking(false);
         if (phrase) setMessage(phrase);
@@ -75,14 +69,19 @@ export default function FlipBoard() {
     run();
     const iv = setInterval(run, settings.autoInterval * 60 * 1000);
     return () => { cancelled = true; clearInterval(iv); };
-  }, [settings.autoMode, settings.autoInterval, settings.selectedModel, ollama.connected]);
+  }, [settings.autoMode, settings.autoInterval, settings.selectedModel, ollama.connected, ollama.generate]);
 
+  // Handle AI prompt
   const handleAiPrompt = useCallback(async (prompt: string) => {
     setThinking(true);
-    const phrase = await generateRef.current(columnsRef.current, rowsRef.current, prompt);
+    const phrase = await ollama.generate(columnsRef.current, MAX_ROWS, prompt);
     setThinking(false);
-    if (phrase) setMessage(phrase);
-  }, []);
+    if (phrase) {
+      setMessage(phrase);
+    } else if (ollama.error) {
+      setMessage(ollama.error.toUpperCase().slice(0, columnsRef.current));
+    }
+  }, [ollama.generate, ollama.error]);
 
   return (
     <div className="flipboard-page">
@@ -108,8 +107,6 @@ export default function FlipBoard() {
       <FlipControls
         message={message}
         onMessageChange={setMessage}
-        rows={rows}
-        onRowsChange={setRows}
         columns={columns}
         ollama={ollama}
         onAiPrompt={handleAiPrompt}

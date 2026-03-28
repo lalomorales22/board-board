@@ -10,24 +10,7 @@ export interface OllamaState {
   refresh: () => Promise<void>;
 }
 
-// Use the Vite proxy to avoid CORS — all requests go through /ollama/*
 const PROXY = '/ollama';
-
-const MAX_RETRIES = 2;
-const RETRY_BASE_MS = 2000;
-
-async function fetchRetry(url: string, init: RequestInit, retries = MAX_RETRIES): Promise<Response> {
-  for (let attempt = 0; attempt <= retries; attempt++) {
-    const res = await fetch(url, init);
-    if (res.status === 429 && attempt < retries) {
-      const wait = RETRY_BASE_MS * Math.pow(2, attempt);
-      await new Promise((r) => setTimeout(r, wait));
-      continue;
-    }
-    return res;
-  }
-  throw new Error('Rate limited — try again in a moment');
-}
 
 export function useOllama(_userUrl: string, selectedModel: string): OllamaState {
   const [models, setModels] = useState<OllamaModel[]>([]);
@@ -35,7 +18,12 @@ export function useOllama(_userUrl: string, selectedModel: string): OllamaState 
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
-  const busyRef = useRef(false);
+
+  // Refs so generate() always reads fresh values — no stale closures
+  const connectedRef = useRef(false);
+  const modelRef = useRef('');
+  connectedRef.current = connected;
+  modelRef.current = selectedModel;
 
   const fetchModels = useCallback(async () => {
     try {
@@ -60,15 +48,26 @@ export function useOllama(_userUrl: string, selectedModel: string): OllamaState 
     return () => clearInterval(iv);
   }, [fetchModels]);
 
+  // generate is stable (empty deps) — reads everything from refs
   const generate = useCallback(
-    async (maxCharsPerLine: number, maxLines: number, userPrompt?: string): Promise<string | null> => {
-      if (!connected || !selectedModel) return null;
-      if (busyRef.current) return null;
+    async (
+      maxCharsPerLine: number,
+      maxLines: number,
+      userPrompt?: string,
+    ): Promise<string | null> => {
+      const model = modelRef.current;
+      const isConnected = connectedRef.current;
 
+      if (!isConnected || !model) {
+        setError(!isConnected ? 'Not connected to Ollama' : 'No model selected');
+        return null;
+      }
+
+      // Abort any in-flight request
       abortRef.current?.abort();
       const ac = new AbortController();
       abortRef.current = ac;
-      busyRef.current = true;
+
       setGenerating(true);
       setError(null);
 
@@ -93,24 +92,41 @@ export function useOllama(_userUrl: string, selectedModel: string): OllamaState 
             `Be creative and inspiring — not cheesy. Just the phrase, nothing else. No quotes.`;
         }
 
-        const res = await fetchRetry(
-          `${PROXY}/api/generate`,
-          {
+        const res = await fetch(`${PROXY}/api/generate`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model,
+            prompt,
+            stream: false,
+            options: { temperature: 0.9, num_predict: totalChars + 30 },
+          }),
+          signal: ac.signal,
+        });
+
+        if (res.status === 429) {
+          // Wait and retry once
+          await new Promise((r) => setTimeout(r, 3000));
+          if (ac.signal.aborted) return null;
+          const retry = await fetch(`${PROXY}/api/generate`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              model: selectedModel,
+              model,
               prompt,
               stream: false,
               options: { temperature: 0.9, num_predict: totalChars + 30 },
             }),
             signal: ac.signal,
-          },
-        );
+          });
+          if (!retry.ok) throw new Error(`Ollama returned ${retry.status}`);
+          const d = await retry.json();
+          return (d.response || '').trim().replace(/^["']|["']$/g, '') || null;
+        }
 
         if (!res.ok) {
           const body = await res.text().catch(() => '');
-          throw new Error(`Ollama returned ${res.status}: ${body.slice(0, 120)}`);
+          throw new Error(`Ollama ${res.status}: ${body.slice(0, 100)}`);
         }
 
         const data = await res.json();
@@ -122,11 +138,10 @@ export function useOllama(_userUrl: string, selectedModel: string): OllamaState 
         }
         return null;
       } finally {
-        busyRef.current = false;
         setGenerating(false);
       }
     },
-    [connected, selectedModel],
+    [], // Stable! Reads from refs.
   );
 
   return { models, connected, generating, error, generate, refresh: fetchModels };

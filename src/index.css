@@ -484,13 +484,26 @@ select {
   min-width: 0;
 }
 
-.input-wrapper input {
+.input-field {
   flex: 1;
   font-family: 'Roboto Mono', monospace;
   font-size: 13px;
   padding: 7px 12px;
   border-radius: 8px;
   min-width: 0;
+  resize: none;
+  overflow: hidden;
+  line-height: 1.4;
+  min-height: 34px;
+  max-height: 120px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+
+.input-field:focus {
+  border-color: var(--accent);
+  outline: none;
 }
 
 .send-btn {

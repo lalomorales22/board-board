@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useAppContext } from '../context/AppContext';
 import { MAX_ROWS } from '../types';
 import type { OllamaState } from '../hooks/useOllama';
@@ -7,8 +7,6 @@ import type { TileSize, AutoInterval } from '../types';
 interface Props {
   message: string;
   onMessageChange: (msg: string) => void;
-  rows: number;
-  onRowsChange: (r: number) => void;
   columns: number;
   ollama: OllamaState;
   onAiPrompt: (prompt: string) => Promise<void>;
@@ -24,36 +22,58 @@ const INTERVALS: { value: AutoInterval; label: string }[] = [
 ];
 
 export default function FlipControls({
-  message, onMessageChange, rows, onRowsChange, columns, ollama, onAiPrompt, thinking,
+  message, onMessageChange, columns, ollama, onAiPrompt, thinking,
 }: Props) {
   const { settings, updateSettings } = useAppContext();
   const { models, connected, generating, error } = ollama;
-  const [inputText, setInputText] = useState('');
+  const [prompt, setPrompt] = useState('');
   const [manualMode, setManualMode] = useState(false);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const isBusy = thinking || generating;
-
-  const handleSubmit = async () => {
-    if (!inputText.trim() || isBusy) return;
-    if (manualMode || !connected || !settings.selectedModel) {
-      onMessageChange(inputText.trim());
-      setInputText('');
-    } else {
-      const prompt = inputText.trim();
-      setInputText('');
-      await onAiPrompt(prompt);
-    }
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSubmit();
-    }
-  };
-
   const isAiReady = connected && !!settings.selectedModel;
   const inputMode = manualMode || !isAiReady ? 'manual' : 'ai';
+
+  // Auto-resize textarea to fit content
+  useEffect(() => {
+    const ta = textareaRef.current;
+    if (!ta) return;
+    ta.style.height = 'auto';
+    ta.style.height = ta.scrollHeight + 'px';
+  }, [inputMode === 'manual' ? message : prompt]);
+
+  // In manual mode, limit lines to MAX_ROWS
+  const handleManualChange = (value: string) => {
+    const lines = value.split('\n');
+    if (lines.length > MAX_ROWS) return; // Don't allow more than MAX_ROWS lines
+    onMessageChange(value);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (inputMode === 'ai') {
+      // AI mode: Enter sends prompt, Shift+Enter for new line
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        handleAiSubmit();
+      }
+    } else {
+      // Manual mode: Enter creates new row (if under MAX_ROWS), Cmd+Enter submits
+      if (e.key === 'Enter' && !e.shiftKey) {
+        const lines = message.split('\n');
+        if (lines.length >= MAX_ROWS) {
+          e.preventDefault(); // At max rows, block Enter
+        }
+        // Otherwise, Enter naturally creates a new line in textarea
+      }
+    }
+  };
+
+  const handleAiSubmit = async () => {
+    if (!prompt.trim() || isBusy) return;
+    const text = prompt.trim();
+    setPrompt('');
+    await onAiPrompt(text);
+  };
 
   const sizeBtn = (s: TileSize, label: string) => (
     <button
@@ -87,32 +107,43 @@ export default function FlipControls({
         </div>
 
         <div className="input-wrapper">
-          <input
-            type="text"
-            value={inputText}
-            onChange={(e) => setInputText(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder={
-              isBusy
-                ? 'Thinking...'
-                : inputMode === 'ai'
-                  ? 'Ask AI something... (Enter to send)'
-                  : 'Type board text... (Enter to display)'
-            }
-            spellCheck={false}
-            disabled={isBusy}
-          />
-          <button
-            className="send-btn"
-            onClick={handleSubmit}
-            disabled={!inputText.trim() || isBusy}
-          >
-            {isBusy ? '...' : inputMode === 'ai' ? 'Ask' : 'Set'}
-          </button>
+          {inputMode === 'ai' ? (
+            <>
+              <textarea
+                ref={textareaRef}
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder={isBusy ? 'Thinking...' : 'Ask AI something... (Enter to send)'}
+                spellCheck={false}
+                disabled={isBusy}
+                rows={1}
+                className="input-field"
+              />
+              <button
+                className="send-btn"
+                onClick={handleAiSubmit}
+                disabled={!prompt.trim() || isBusy}
+              >
+                {isBusy ? '...' : 'Ask'}
+              </button>
+            </>
+          ) : (
+            <textarea
+              ref={textareaRef}
+              value={message}
+              onChange={(e) => handleManualChange(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="Type on the board... (Enter for new row)"
+              spellCheck={false}
+              rows={1}
+              className="input-field"
+            />
+          )}
         </div>
 
         <div className="controls-info">
-          {columns}x{rows}
+          {columns}x{Math.max(1, Math.min(MAX_ROWS, (inputMode === 'manual' ? message : '').split('\n').length))}
         </div>
       </div>
 
@@ -125,28 +156,6 @@ export default function FlipControls({
             {sizeBtn('small', 'S')}
             {sizeBtn('medium', 'M')}
             {sizeBtn('large', 'L')}
-          </div>
-        </div>
-
-        {/* Rows */}
-        <div className="control-group">
-          <label>Rows</label>
-          <div className="btn-group">
-            <button
-              className="icon-btn"
-              disabled={rows <= 1}
-              onClick={() => onRowsChange(Math.max(1, rows - 1))}
-            >
-              −
-            </button>
-            <span className="row-count">{rows}</span>
-            <button
-              className="icon-btn"
-              disabled={rows >= MAX_ROWS}
-              onClick={() => onRowsChange(Math.min(MAX_ROWS, rows + 1))}
-            >
-              +
-            </button>
           </div>
         </div>
 
