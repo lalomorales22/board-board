@@ -233,24 +233,7 @@ select {
   flex-shrink: 0;
 }
 
-/* Tile size variants */
-.tile-small {
-  --t-w: 32px;
-  --t-h: 46px;
-  --t-font: 24px;
-}
-
-.tile-medium {
-  --t-w: 48px;
-  --t-h: 68px;
-  --t-font: 36px;
-}
-
-.tile-large {
-  --t-w: 68px;
-  --t-h: 96px;
-  --t-font: 52px;
-}
+/* Tile size vars are set dynamically on .flipboard-frame via inline styles */
 
 /* Shared half-tile styles */
 .tile-upper,

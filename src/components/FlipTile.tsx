@@ -5,7 +5,6 @@ import { playFlipSound } from '../utils/audio';
 interface FlipTileProps {
   targetChar: string;
   delay?: number;
-  size: 'small' | 'medium' | 'large';
   soundEnabled?: boolean;
   soundVolume?: number;
 }
@@ -31,7 +30,6 @@ function getFlipSequence(from: string, to: string): string[] {
 const FlipTile = memo(function FlipTile({
   targetChar,
   delay = 0,
-  size,
   soundEnabled = true,
   soundVolume = 0.3,
 }: FlipTileProps) {
@@ -118,7 +116,7 @@ const FlipTile = memo(function FlipTile({
   }, [targetChar, delay, animateTo]);
 
   return (
-    <div ref={containerRef} className={`flip-tile tile-${size}`}>
+    <div ref={containerRef} className="flip-tile">
       <div className="tile-upper">
         <span ref={topTextRef} className="tile-char">{' '}</span>
       </div>
